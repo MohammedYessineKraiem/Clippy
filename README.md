@@ -1,5 +1,9 @@
 # Clippy
 
+<p align="center">
+  <img src="resources/Clippy%20Logo.png" alt="Clippy logo" width="520">
+</p>
+
 Clippy is a private, local-first clipboard manager for Windows 11. It captures text copied to
 the Windows clipboard, classifies it into useful sections, and provides fast fuzzy and semantic
 search from a compact keyboard-driven popup. Clipboard data, settings, embeddings, and vault

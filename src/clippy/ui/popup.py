@@ -15,7 +15,7 @@ from PySide6.QtCore import (
     QTimer,
     Signal,
 )
-from PySide6.QtGui import QColor, QCursor, QGuiApplication, QKeyEvent, QPainter, QPen
+from PySide6.QtGui import QColor, QCursor, QGuiApplication, QKeyEvent, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QHBoxLayout,
@@ -34,7 +34,7 @@ from PySide6.QtWidgets import (
 
 from ..audio import AudioService
 from ..capture import CaptureService
-from ..config import AppSettings
+from ..config import AppSettings, bundled_logo_path
 from ..models import Entry
 from ..platform_actions import extract_path, extract_url, open_url, reveal_path
 from ..search import SearchService
@@ -127,6 +127,16 @@ class PopupWindow(QWidget):
         root = QVBoxLayout(self)
         root.setContentsMargins(12, 12, 12, 12)
         header = QHBoxLayout()
+        logo_path = bundled_logo_path()
+        if logo_path.is_file():
+            logo = QLabel()
+            logo.setPixmap(
+                QPixmap(str(logo_path)).scaledToHeight(
+                    34, Qt.TransformationMode.SmoothTransformation
+                )
+            )
+            logo.setToolTip("Clippy")
+            header.addWidget(logo)
         self.search = QLineEdit()
         self.search.setPlaceholderText("Search clipboard history…")
         self.search.textChanged.connect(lambda: self._search_timer.start())
