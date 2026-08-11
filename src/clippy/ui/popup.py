@@ -54,7 +54,7 @@ from ..audio import AudioService
 from ..capture import CaptureService
 from ..config import AppSettings, bundled_logo_path
 from ..models import Entry
-from ..platform_actions import extract_path, extract_url, open_url, reveal_path
+from ..platform_actions import extract_path, reveal_path
 from ..search import SearchService
 from ..security import InvalidPassphraseError
 from ..storage import Storage
@@ -94,7 +94,6 @@ class EntryRow(QWidget):
     drag_selection_moved = Signal(QPoint)
     pin_requested = Signal(int, bool)
     preview_requested = Signal(int)
-    url_requested = Signal(int)
     path_requested = Signal(int)
     vault_requested = Signal(int)
 
@@ -132,10 +131,6 @@ class EntryRow(QWidget):
         content.addLayout(metadata)
         self._layout.addLayout(content, 1)
 
-        if extract_url(entry.text) and not risky:
-            button = self._action_button("URL", "URL", "Open in the default browser")
-            button.clicked.connect(lambda: self.url_requested.emit(entry.id))
-            self._layout.addWidget(button)
         if extract_path(entry.text):
             button = self._action_button("FILE", "FILE", "Reveal in Explorer")
             button.clicked.connect(lambda: self.path_requested.emit(entry.id))
@@ -399,7 +394,6 @@ class PopupWindow(QWidget):
             row.drag_selection_moved.connect(self._drag_select_to)
             row.pin_requested.connect(self._pin)
             row.preview_requested.connect(self._preview)
-            row.url_requested.connect(self._open_url)
             row.path_requested.connect(self._open_path)
             row.vault_requested.connect(self._move_to_vault)
             self.list.setItemWidget(item, row)
@@ -783,11 +777,6 @@ class PopupWindow(QWidget):
         animation.finished.connect(finish)
         self._preview_animation = animation
         animation.start(QAbstractAnimation.DeletionPolicy.KeepWhenStopped)
-
-    def _open_url(self, entry_id: int) -> None:
-        entry = self.entries.get(entry_id)
-        if entry and not open_url(entry.text):
-            QMessageBox.warning(self, "Open URL", "The URL could not be opened.")
 
     def _open_path(self, entry_id: int) -> None:
         entry = self.entries.get(entry_id)

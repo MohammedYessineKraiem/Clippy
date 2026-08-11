@@ -111,8 +111,8 @@ keyword:suspicious marker
 re:custom-pattern
 ```
 
-A risk match means **review before trusting**, not a definitive malware diagnosis. Flagged URLs do
-not expose the Open URL action. Clippy never contacts online reputation services.
+A risk match means **review before trusting**, not a definitive malware diagnosis. URLs are never
+opened by Clippy. The app never contacts online reputation services or any other network endpoint.
 
 Search has two mutually exclusive modes:
 
@@ -134,6 +134,10 @@ Every custom section automatically receives a `section:<slug>` operator.
 The Vault uses a PBKDF2-derived Fernet key. Both entry text and its cached embedding are encrypted
 at rest. The passphrase and derived key are never written to disk; the key exists only in process
 memory while the vault is unlocked.
+
+Regular clipboard-history entries are stored locally in the SQLite database without Vault
+encryption. Move sensitive entries to the Vault and protect the Windows account and data directory
+from other local users or backup tools.
 
 The default timeout locks the vault one minute after the last vault activity. Set it to zero to
 keep the vault unlocked until the explicit **Lock** button is used.
