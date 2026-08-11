@@ -115,3 +115,85 @@ def test_config_semantic_toggle_persists_exclusive_mode(tmp_path):
     assert settings.semantic_search_enabled
     assert dialog.semantic_search.text() == "SEMANTIC SEARCH: ON"
     storage.close()
+
+
+def test_section_editor_cancel_returns_control_to_config(tmp_path):
+    application = _application()
+    storage = Storage(tmp_path / "section-dialog.db", VaultManager())
+    dialog = ConfigDialog(
+        storage,
+        AppSettings(),
+        SettingsStore(tmp_path / "section-config.json"),
+        Classifier(UnavailableEmbedder()),
+    )
+    dialog.show()
+
+    dialog._add_section()
+    application.processEvents()
+
+    editor = dialog._section_editor
+    assert editor is not None
+    assert editor.isVisible()
+    editor.reject()
+    application.processEvents()
+
+    assert dialog._section_editor is None
+    assert dialog.isVisible()
+
+    dialog._add_section()
+    application.processEvents()
+    editor = dialog._section_editor
+    assert editor is not None
+    editor.name.setText("Project notes")
+    editor._save()
+    application.processEvents()
+
+    assert dialog._section_editor is None
+    assert any(section.slug == "project-notes" for section in storage.list_sections())
+    dialog.reject()
+    storage.close()
+
+
+def test_hotkey_close_rejects_all_owned_dialogs(tmp_path):
+    application = _application()
+    storage = Storage(tmp_path / "nested-dialog.db", VaultManager())
+    embedder = UnavailableEmbedder()
+    settings = AppSettings(pin_open=True)
+
+    def config_factory(parent):
+        return ConfigDialog(
+            storage,
+            settings,
+            SettingsStore(tmp_path / "nested-config.json"),
+            Classifier(embedder),
+            parent,
+        )
+
+    popup = PopupWindow(
+        storage,
+        SearchService(storage, embedder),
+        CaptureService(storage, Classifier(embedder)),
+        AudioService(),
+        settings,
+        config_factory,
+    )
+    popup.show_popup()
+    application.processEvents()
+    popup._open_config()
+    assert popup._config_dialog is not None
+    popup._config_dialog._add_section()
+    application.processEvents()
+    editor = popup._config_dialog._section_editor
+    assert editor is not None and editor.isVisible()
+
+    popup.show_popup()
+    application.processEvents()
+
+    assert popup._closing
+    assert popup._config_dialog is None
+    assert not any(
+        widget is not popup and popup._owns_widget(widget) and widget.isVisible()
+        for widget in application.topLevelWidgets()
+    )
+    popup.hide()
+    storage.close()

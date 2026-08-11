@@ -4,15 +4,7 @@ import difflib
 import html
 import re
 
-from PySide6.QtCore import (
-    QAbstractAnimation,
-    QEasingCurve,
-    QParallelAnimationGroup,
-    QPropertyAnimation,
-    QRect,
-    Qt,
-    Signal,
-)
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -45,28 +37,18 @@ def slugify(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", value.casefold()).strip("-")
 
 
-class AnimatedDialog(QDialog):
+class ClippyDialog(QDialog):
+    """Base dialog with deterministic close behavior.
+
+    Dialog rejection must complete synchronously. Delaying it behind an animation can
+    leave a modal event loop alive after its parent has been hidden.
+    """
+
     def reject(self) -> None:
-        current = self.geometry()
-        end = QRect(current.left(), current.center().y(), current.width(), 2)
-        geometry = QPropertyAnimation(self, b"geometry", self)
-        geometry.setDuration(170)
-        geometry.setStartValue(current)
-        geometry.setEndValue(end)
-        geometry.setEasingCurve(QEasingCurve.Type.InOutCubic)
-        opacity = QPropertyAnimation(self, b"windowOpacity", self)
-        opacity.setDuration(90)
-        opacity.setStartValue(self.windowOpacity())
-        opacity.setEndValue(0.0)
-        group = QParallelAnimationGroup(self)
-        group.addAnimation(geometry)
-        group.addAnimation(opacity)
-        group.finished.connect(super().reject)
-        self._close_animation = group
-        group.start(QAbstractAnimation.DeletionPolicy.KeepWhenStopped)
+        QDialog.reject(self)
 
 
-class SectionEditor(AnimatedDialog):
+class SectionEditor(ClippyDialog):
     def __init__(self, section: Section, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.section = section
@@ -127,7 +109,7 @@ class SectionEditor(AnimatedDialog):
         self.accept()
 
 
-class DiffDialog(AnimatedDialog):
+class DiffDialog(ClippyDialog):
     def __init__(self, left: str, right: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("DiffDialog")
@@ -242,7 +224,7 @@ class DiffDialog(AnimatedDialog):
         )
 
 
-class ConfigDialog(AnimatedDialog):
+class ConfigDialog(ClippyDialog):
     settings_changed = Signal()
     sections_changed = Signal()
     quit_requested = Signal()
@@ -260,6 +242,7 @@ class ConfigDialog(AnimatedDialog):
         self.settings = settings
         self.settings_store = settings_store
         self.classifier = classifier
+        self._section_editor: SectionEditor | None = None
         self.setWindowTitle("Clippy configuration")
         self.resize(620, 520)
         root = QVBoxLayout(self)
@@ -410,26 +393,39 @@ class ConfigDialog(AnimatedDialog):
             + 10
         )
         section = Section(0, "New section", "new-section", SectionKind.SEMANTIC, priority)
-        editor = SectionEditor(section, self)
-        if editor.exec():
-            try:
-                self.storage.save_section(section)
-            except Exception as exc:
-                QMessageBox.warning(self, "Section", str(exc))
-                return
-            self.classifier.clear_prototype_cache()
-            self._refresh_sections()
-            self.sections_changed.emit()
+        self._open_section_editor(section)
 
     def _edit_section(self) -> None:
         section = self._selected_section()
         if not section:
             return
-        if SectionEditor(section, self).exec():
+        self._open_section_editor(section)
+
+    def _open_section_editor(self, section: Section) -> None:
+        if self._section_editor is not None and self._section_editor.isVisible():
+            self._section_editor.raise_()
+            self._section_editor.activateWindow()
+            return
+        editor = SectionEditor(section, self)
+        editor.setWindowModality(Qt.WindowModality.WindowModal)
+        editor.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        editor.accepted.connect(lambda: self._save_section(section))
+        editor.finished.connect(self._section_editor_closed)
+        self._section_editor = editor
+        editor.open()
+
+    def _save_section(self, section: Section) -> None:
+        try:
             self.storage.save_section(section)
-            self.classifier.clear_prototype_cache()
-            self._refresh_sections()
-            self.sections_changed.emit()
+        except Exception as exc:
+            QMessageBox.warning(self, "Section", str(exc))
+            return
+        self.classifier.clear_prototype_cache()
+        self._refresh_sections()
+        self.sections_changed.emit()
+
+    def _section_editor_closed(self) -> None:
+        self._section_editor = None
 
     def _delete_section(self) -> None:
         section = self._selected_section()

@@ -7,6 +7,7 @@ from PySide6.QtCore import (
     QAbstractAnimation,
     QEasingCurve,
     QEvent,
+    QObject,
     QParallelAnimationGroup,
     QPoint,
     QPropertyAnimation,
@@ -28,6 +29,8 @@ from PySide6.QtGui import (
     QResizeEvent,
 )
 from PySide6.QtWidgets import (
+    QApplication,
+    QDialog,
     QFrame,
     QHBoxLayout,
     QInputDialog,
@@ -191,6 +194,8 @@ class PopupWindow(QWidget):
         self.entries: dict[int, Entry] = {}
         self._closing = False
         self._opening = False
+        self._config_dialog: ConfigDialog | None = None
+        self._diff_dialog: DiffDialog | None = None
         self._preferred_size = QSize(760, 540)
         self.setObjectName("Panel")
         self.setWindowFlags(
@@ -205,6 +210,9 @@ class PopupWindow(QWidget):
         self._search_timer.setSingleShot(True)
         self._search_timer.setInterval(110)
         self._search_timer.timeout.connect(self.refresh)
+        application = QApplication.instance()
+        if application is not None:
+            application.installEventFilter(self)
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
@@ -413,6 +421,7 @@ class PopupWindow(QWidget):
         self._opening = False
 
     def close_animated(self) -> None:
+        self._close_owned_dialogs()
         if self._closing or not self.isVisible():
             return
         self._opening = False
@@ -442,24 +451,48 @@ class PopupWindow(QWidget):
         self.stack.setCurrentIndex(0)
         self._closing = False
 
-    def event(self, event: QEvent) -> bool:
-        result = super().event(event)
-        if event.type() == QEvent.Type.WindowDeactivate:
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
+        if (
+            event.type() == QEvent.Type.WindowDeactivate
+            and isinstance(watched, QWidget)
+            and self._owns_widget(watched)
+        ):
             QTimer.singleShot(60, self._dismiss_if_inactive)
-        return result
+        return super().eventFilter(watched, event)
 
-    def focusOutEvent(self, event: QEvent) -> None:
-        super().focusOutEvent(event)
-        QTimer.singleShot(60, self._dismiss_if_inactive)
+    def _owns_widget(self, widget: QWidget | None) -> bool:
+        current = widget
+        while current is not None:
+            if current is self:
+                return True
+            current = current.parentWidget()
+        return False
+
+    def _close_owned_dialogs(self) -> None:
+        application = QApplication.instance()
+        if application is None:
+            return
+
+        def parent_depth(widget: QWidget) -> int:
+            depth = 0
+            current = widget.parentWidget()
+            while current is not None:
+                depth += 1
+                current = current.parentWidget()
+            return depth
+
+        dialogs = [
+            widget
+            for widget in application.topLevelWidgets()
+            if isinstance(widget, QDialog) and self._owns_widget(widget) and widget.isVisible()
+        ]
+        for dialog in sorted(dialogs, key=parent_depth, reverse=True):
+            dialog.reject()
 
     def _dismiss_if_inactive(self) -> None:
-        if self.settings.pin_open or not self.isVisible() or self.isActiveWindow():
+        if self.settings.pin_open or not self.isVisible():
             return
-        child_panels = (
-            getattr(self, "_config_dialog", None),
-            getattr(self, "_diff_dialog", None),
-        )
-        if any(panel is not None and panel.isVisible() for panel in child_panels):
+        if self._owns_widget(QApplication.activeWindow()):
             return
         self.close_animated()
 
@@ -574,8 +607,14 @@ class PopupWindow(QWidget):
     def _show_diff(self) -> None:
         entries = self._selected_entries()
         if len(entries) == 2:
-            self._diff_dialog = DiffDialog(entries[0].text, entries[1].text, self)
-            self._diff_dialog.show()
+            if self._diff_dialog is not None and self._diff_dialog.isVisible():
+                self._diff_dialog.raise_()
+                self._diff_dialog.activateWindow()
+                return
+            dialog = DiffDialog(entries[0].text, entries[1].text, self)
+            dialog.finished.connect(lambda: self._dialog_closed("_diff_dialog", dialog))
+            self._diff_dialog = dialog
+            dialog.show()
 
     def _pin(self, entry_id: int, pinned: bool) -> None:
         self.storage.set_pinned(entry_id, pinned)
@@ -652,10 +691,20 @@ class PopupWindow(QWidget):
         self.refresh()
 
     def _open_config(self) -> None:
-        self._config_dialog = self.config_factory(self)
-        self._config_dialog.sections_changed.connect(self._config_updated)
-        self._config_dialog.settings_changed.connect(self._config_updated)
-        self._config_dialog.show()
+        if self._config_dialog is not None and self._config_dialog.isVisible():
+            self._config_dialog.raise_()
+            self._config_dialog.activateWindow()
+            return
+        dialog = self.config_factory(self)
+        dialog.sections_changed.connect(self._config_updated)
+        dialog.settings_changed.connect(self._config_updated)
+        dialog.finished.connect(lambda: self._dialog_closed("_config_dialog", dialog))
+        self._config_dialog = dialog
+        dialog.show()
+
+    def _dialog_closed(self, attribute: str, dialog: QDialog) -> None:
+        if getattr(self, attribute) is dialog:
+            setattr(self, attribute, None)
 
     def _config_updated(self) -> None:
         self.rebuild_tabs()
