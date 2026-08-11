@@ -52,11 +52,13 @@ class SectionEditor(ClippyDialog):
     def __init__(self, section: Section, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.section = section
-        self.setWindowTitle("Section")
+        permanent_risk = section.slug == "malicious"
+        self.setWindowTitle(f"Section - {section.name}")
         self.setMinimumWidth(480)
         layout = QVBoxLayout(self)
         form = QFormLayout()
         self.name = QLineEdit(section.name)
+        self.name.setEnabled(not permanent_risk)
         self.kind = QComboBox()
         self.kind.addItems(["structural", "syntax", "semantic"])
         self.kind.setCurrentText(
@@ -65,6 +67,7 @@ class SectionEditor(ClippyDialog):
         self.kind.setEnabled(not section.system)
         self.visible = QCheckBox("Show section tab")
         self.visible.setChecked(section.visible)
+        self.visible.setEnabled(not permanent_risk)
         self.expiry = QSpinBox()
         self.expiry.setRange(0, 24 * 3650)
         self.expiry.setSuffix(" hours (0 = never)")
@@ -74,14 +77,34 @@ class SectionEditor(ClippyDialog):
         form.addRow("Visibility", self.visible)
         form.addRow("Expiry", self.expiry)
         layout.addLayout(form)
-        layout.addWidget(QLabel("Patterns — one per line (`re:` or `keyword:` prefixes supported)"))
+        if permanent_risk:
+            risk_note = QLabel(
+                "Built-in local risk rules are always active. Add custom risky domains, URLs, "
+                "or source markers below; this is a warning system, not a malware verdict."
+            )
+            risk_note.setWordWrap(True)
+            risk_note.setObjectName("RiskNotice")
+            layout.addWidget(risk_note)
+            patterns_label = QLabel(
+                "Custom risk list - one per line (domain:, url:, source:, keyword:, or re:)"
+            )
+        else:
+            patterns_label = QLabel("Patterns - one per line (re: or keyword: prefixes supported)")
+        layout.addWidget(patterns_label)
         from PySide6.QtWidgets import QPlainTextEdit
 
         self.patterns = QPlainTextEdit("\n".join(section.patterns))
+        if permanent_risk:
+            self.patterns.setPlaceholderText(
+                "domain:bad.example\nurl:https://example.test/download\nsource:Unknown Publisher"
+            )
         layout.addWidget(self.patterns)
-        layout.addWidget(QLabel("Semantic prototype examples — one per line"))
+        examples_label = QLabel("Semantic prototype examples - one per line")
+        layout.addWidget(examples_label)
         self.examples = QPlainTextEdit("\n".join(section.examples))
         layout.addWidget(self.examples)
+        examples_label.setVisible(not permanent_risk)
+        self.examples.setVisible(not permanent_risk)
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
         )
@@ -98,7 +121,9 @@ class SectionEditor(ClippyDialog):
         if not self.section.system:
             self.section.slug = slugify(name)
             self.section.kind = SectionKind(self.kind.currentText())
-        self.section.visible = self.visible.isChecked()
+        self.section.visible = (
+            True if self.section.slug == "malicious" else self.visible.isChecked()
+        )
         self.section.expiry_seconds = self.expiry.value() * 3600 or None
         self.section.patterns = [
             line.strip() for line in self.patterns.toPlainText().splitlines() if line.strip()
@@ -367,7 +392,10 @@ class ConfigDialog(ClippyDialog):
         for section in self.storage.list_sections():
             if section.kind is SectionKind.VAULT:
                 continue
-            suffix = "" if section.visible else " (hidden)"
+            if section.slug == "malicious":
+                suffix = " (permanent)"
+            else:
+                suffix = "" if section.visible else " (hidden)"
             self.section_list.addItem(f"{section.name} · {section.kind.value}{suffix}")
             self.section_list.item(self.section_list.count() - 1).setData(
                 Qt.ItemDataRole.UserRole, section.id
@@ -420,6 +448,8 @@ class ConfigDialog(ClippyDialog):
         except Exception as exc:
             QMessageBox.warning(self, "Section", str(exc))
             return
+        if section.slug == "malicious":
+            self.storage.flag_existing_risks()
         self.classifier.clear_prototype_cache()
         self._refresh_sections()
         self.sections_changed.emit()
@@ -430,6 +460,11 @@ class ConfigDialog(ClippyDialog):
     def _delete_section(self) -> None:
         section = self._selected_section()
         if not section:
+            return
+        if section.slug == "malicious":
+            QMessageBox.information(
+                self, "Malicious section", "The local risk section is permanent."
+            )
             return
         try:
             self.storage.delete_section(section.id)
@@ -446,6 +481,8 @@ class ConfigDialog(ClippyDialog):
             return
         sections = [s for s in self.storage.list_sections() if s.kind is not SectionKind.VAULT]
         left, right = sections[row], sections[other_row]
+        if left.slug == "malicious" or right.slug == "malicious":
+            return
         left.priority, right.priority = right.priority, left.priority
         self.storage.save_section(left)
         self.storage.save_section(right)

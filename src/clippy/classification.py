@@ -8,6 +8,7 @@ import numpy as np
 
 from .embeddings import Embedder, cosine_similarity, vector_to_blob
 from .models import Classification, Section, SectionKind
+from .risk_detection import detect_risk
 
 
 class Classifier:
@@ -21,7 +22,15 @@ class Classifier:
         embedding = vector_to_blob(vector) if vector.size else None
         active = [s for s in sections if s.kind is not SectionKind.VAULT]
 
+        risk_section = next((section for section in active if section.slug == "malicious"), None)
+        if risk_section is not None:
+            reason = detect_risk(text, risk_section.patterns)
+            if reason:
+                return Classification(risk_section.id, f"local risk indicator: {reason}"), embedding
+
         for section in active:
+            if section.slug == "malicious":
+                continue
             if section.kind in {SectionKind.STRUCTURAL, SectionKind.SYNTAX}:
                 reason = self._match_patterns(text, section.patterns)
                 if reason:

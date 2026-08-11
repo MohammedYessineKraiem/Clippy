@@ -76,7 +76,7 @@ Part of the "Companion Suite" — standalone .exe, shares visual/audio identity 
 ## 3. Classifier (Sections)
 
 ### Default sections
-`All` (implicit, shows everything) - `Passwords` - `Directories` - `App names` - `Code` - `Commands` - `Python code` - `Java code` - `URLs` - `API keys`
+`All` (implicit, shows everything) - `Malicious` - `Passwords` - `Directories` - `App names` - `Code` - `Commands` - `Python code` - `Java code` - `URLs` - `API keys`
 
 Every captured entry is always included in `All`. A classified entry is also shown in its assigned section. Classification assigns at most one non-`All` section, based on tier priority and the first confident match. Entries that do not clear the semantic confidence threshold remain visible in `All` only.
 
@@ -87,6 +87,7 @@ Structural facts are cheap to detect with regex and are unambiguous — no reaso
 - **Directories**: path-like patterns (`C:\...`, `/home/...`, path separators + known extensions)
 - **API keys**: curated pattern library for known key formats (`sk-...`, `ghp_...`, `AIza...`, `AKIA...`, etc.) plus a generic high-entropy-string fallback — the same approach real secret-scanners (gitleaks, truffleHog) use, no ML needed
 - **URLs**: standard URL pattern
+- **Malicious**: permanent, highest-priority local risk warnings for dangerous or obfuscated commands, destructive behavior, suspicious URL structures, direct executable/script downloads, and user-maintained URL/domain/source markers. Built-in rules cannot be disabled or edited; custom markers are editable. Matches are warnings rather than definitive malware verdicts.
 
 **Tier 2 — Syntax signatures (near-zero cost, runs second)**
 - **Python code**: syntax signatures (`def `, `import `, indentation patterns)

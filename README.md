@@ -20,8 +20,8 @@ grip. The row controls and supporting labels compact automatically at narrow siz
 
 - Captures text clipboard changes and skips an immediately repeated value.
 - Shows every entry in **All** and classified entries in one additional section.
-- Includes Passwords, Directories, App names, Code, Commands, Python code, Java code, URLs,
-  API keys, and the opt-in encrypted Vault.
+- Includes the permanent Malicious risk-warning section, Passwords, Directories, App names, Code,
+  Commands, Python code, Java code, URLs, API keys, and the opt-in encrypted Vault.
 - Single-clicks select entries without closing the popup. Double-click or Enter copies one entry
   back to the clipboard and dismisses the popup.
 - Provides row-local actions for pin, preview, Vault, URL, and Explorer without changing selection.
@@ -38,14 +38,27 @@ Clippy never executes clipboard text. Commands and code are classified and displ
 
 Classification stops at the first confident match:
 
-1. Structural patterns detect API keys, URLs, and paths.
-2. Syntax patterns detect Python, Java, and command-shaped text.
-3. Local semantic prototypes classify remaining entries into Passwords, App names, Code, or a
+1. Local risk rules flag suspicious commands, destructive or obfuscated behavior, risky URL
+   structures, executable downloads, and user-listed domains or sources.
+2. Structural patterns detect API keys, URLs, and paths.
+3. Syntax patterns detect Python, Java, and command-shaped text.
+4. Local semantic prototypes classify remaining entries into Passwords, App names, Code, or a
    custom semantic section. Uncertain entries remain in All only.
 
 The config panel can edit patterns and semantic examples, reorder priority, hide default sections,
 and add or delete custom sections. Classification reasons and semantic scores are available in each
 row's tooltip.
+
+The **Malicious** section cannot be hidden, moved, renamed, or deleted. Its editor accepts extra
+local entries such as `domain:bad.example`, `url:https://example.test/download`,
+`source:Unknown Publisher`, `keyword:marker`, or `re:pattern`. Built-in rules remain active when the
+custom list is empty. Existing non-vault entries are scanned once when the detector is installed,
+and again after its custom list is saved. Flagged URLs intentionally do not expose the Open URL
+quick action.
+
+This detector is conservative and entirely offline. A match means **review before trusting**, not
+a definitive malware diagnosis. Clippy never contacts reputation services and does not execute
+captured content.
 
 Search has two exclusive modes controlled in configuration. **Fast** uses substring and light
 typo-tolerant matching. **Semantic** ranks the section/operator-filtered entries by meaning only,

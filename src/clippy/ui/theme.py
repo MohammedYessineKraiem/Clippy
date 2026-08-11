@@ -124,6 +124,18 @@ QLabel#ModeBadge[semantic="true"] {
     border-color: #E040FB;
     color: #F4CDFF;
 }
+QLabel#Tag[risk="true"] {
+    background: #2A0C1B;
+    border-color: #FF4F8B;
+    color: #FFD1E1;
+}
+QLabel#RiskNotice {
+    background: #1C0A15;
+    border: 1px solid #8A284F;
+    border-radius: 3px;
+    color: #F2B6CB;
+    padding: 8px;
+}
 QTabWidget::pane {
     background: #0B0710;
     border: 1px solid #321A42;

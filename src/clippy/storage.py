@@ -8,9 +8,17 @@ from pathlib import Path
 
 from .config import app_data_dir
 from .models import Classification, Entry, Section, SectionKind
+from .risk_detection import detect_risk
 from .security import VaultLockedError, VaultManager, new_salt
 
 DEFAULT_SECTIONS: tuple[dict[str, object], ...] = (
+    {
+        "name": "Malicious",
+        "slug": "malicious",
+        "kind": "structural",
+        "priority": 0,
+        "patterns": [],
+    },
     {
         "name": "API Keys",
         "slug": "api-keys",
@@ -126,6 +134,9 @@ class Storage:
         self._conn.execute("PRAGMA foreign_keys=ON")
         self._create_schema()
         self._seed_sections()
+        if self.get_meta("risk_detector_backfill_v1") is None:
+            self.flag_existing_risks()
+            self.set_meta("risk_detector_backfill_v1", b"1")
 
     def close(self) -> None:
         with self._lock:
@@ -190,6 +201,10 @@ class Storage:
                         section.get("expiry_seconds"),
                     ),
                 )
+            self._conn.execute(
+                """UPDATE sections SET name='Malicious', slug='malicious', kind='structural',
+                priority=0, visible=1, system=1 WHERE slug='malicious'"""
+            )
 
     def list_sections(self, visible_only: bool = False) -> list[Section]:
         sql = "SELECT * FROM sections"
@@ -207,6 +222,15 @@ class Storage:
     def save_section(self, section: Section) -> Section:
         with self._lock, self._conn:
             if section.id:
+                stored = self._conn.execute(
+                    "SELECT slug FROM sections WHERE id=?", (section.id,)
+                ).fetchone()
+                if stored and stored["slug"] == "malicious":
+                    section.name = "Malicious"
+                    section.slug = "malicious"
+                    section.kind = SectionKind.STRUCTURAL
+                    section.priority = 0
+                    section.visible = True
                 self._conn.execute(
                     """UPDATE sections SET name=?, slug=?, kind=?, priority=?, visible=?,
                     patterns_json=?, examples_json=?, expiry_seconds=? WHERE id=?""",
@@ -253,6 +277,25 @@ class Storage:
                 "UPDATE entries SET section_id=NULL WHERE section_id=?", (section_id,)
             )
             self._conn.execute("DELETE FROM sections WHERE id=?", (section_id,))
+
+    def flag_existing_risks(self) -> int:
+        section = self.get_section("malicious")
+        if section is None:
+            return 0
+        flagged = 0
+        with self._lock, self._conn:
+            rows = self._conn.execute(
+                "SELECT id, text, section_id FROM entries WHERE vault_flag=0"
+            ).fetchall()
+            for row in rows:
+                reason = detect_risk(row["text"], section.patterns)
+                if reason and row["section_id"] != section.id:
+                    self._conn.execute(
+                        "UPDATE entries SET section_id=?, reason=?, similarity=NULL WHERE id=?",
+                        (section.id, f"local risk indicator: {reason}", row["id"]),
+                    )
+                    flagged += 1
+        return flagged
 
     def last_plain_text(self) -> str | None:
         with self._lock:

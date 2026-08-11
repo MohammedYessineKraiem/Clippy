@@ -205,3 +205,34 @@ def test_hotkey_close_rejects_all_owned_dialogs(tmp_path):
     )
     popup.hide()
     storage.close()
+
+
+def test_permanent_risk_editor_saves_custom_domain_list(tmp_path):
+    application = _application()
+    storage = Storage(tmp_path / "risk-editor.db", VaultManager())
+    dialog = ConfigDialog(
+        storage,
+        AppSettings(),
+        SettingsStore(tmp_path / "risk-editor.json"),
+        Classifier(UnavailableEmbedder()),
+    )
+    risk_section = storage.get_section("malicious")
+    assert risk_section is not None
+
+    dialog._open_section_editor(risk_section)
+    application.processEvents()
+    editor = dialog._section_editor
+    assert editor is not None
+    assert not editor.name.isEnabled()
+    assert not editor.visible.isEnabled()
+    assert not editor.examples.isVisible()
+
+    editor.patterns.setPlainText("domain:bad.example\nsource:Unknown Publisher")
+    editor._save()
+    application.processEvents()
+
+    saved = storage.get_section("malicious")
+    assert saved is not None
+    assert saved.patterns == ["domain:bad.example", "source:Unknown Publisher"]
+    dialog.reject()
+    storage.close()

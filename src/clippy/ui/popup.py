@@ -118,8 +118,10 @@ class EntryRow(QWidget):
         metadata = QHBoxLayout()
         metadata.setContentsMargins(0, 0, 0, 0)
         metadata.setSpacing(7)
+        risky = entry.section_name == "Malicious"
         tag = QLabel((entry.section_name or "All").upper())
         tag.setObjectName("Tag")
+        tag.setProperty("risk", risky)
         metadata.addWidget(tag)
         self.time_label = QLabel(entry.created_at.astimezone().strftime("%H:%M  /  %d %b"))
         self.time_label.setObjectName("Secondary")
@@ -128,7 +130,7 @@ class EntryRow(QWidget):
         content.addLayout(metadata)
         self._layout.addLayout(content, 1)
 
-        if extract_url(entry.text):
+        if extract_url(entry.text) and not risky:
             button = self._action_button("URL", "URL", "Open in the default browser")
             button.clicked.connect(lambda: self.url_requested.emit(entry.id))
             self._layout.addWidget(button)
