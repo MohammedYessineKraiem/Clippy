@@ -5,12 +5,22 @@ build-backend = "hatchling.build"
 [project]
 name = "clippy-clipboard-manager"
 version = "0.1.0"
-description = "A private, local-first clipboard manager for Windows 11."
+description = "A local-first Windows clipboard manager with offline classification, semantic search, risk warnings, and an encrypted vault."
 readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.11,<3.13"
 authors = [{ name = "Clippy contributors" }]
-keywords = ["clipboard", "windows", "pyside6", "local-first"]
+keywords = [
+  "clipboard-manager",
+  "clipboard-history",
+  "windows-11",
+  "pyside6",
+  "sqlite",
+  "onnx-runtime",
+  "semantic-search",
+  "local-first",
+  "privacy",
+]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "License :: OSI Approved :: MIT License",
@@ -27,6 +37,11 @@ dependencies = [
   "PySide6==6.8.3",
   "tokenizers==0.19.1",
 ]
+
+[project.urls]
+Homepage = "https://github.com/MohammedYessineKraiem/Clippy"
+Repository = "https://github.com/MohammedYessineKraiem/Clippy.git"
+Issues = "https://github.com/MohammedYessineKraiem/Clippy/issues"
 
 [project.optional-dependencies]
 dev = [
