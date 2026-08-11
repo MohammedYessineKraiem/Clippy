@@ -1,6 +1,7 @@
 import pytest
 
 from clippy.classification import Classifier
+from clippy.embeddings import UnavailableEmbedder
 from clippy.models import Classification, SectionKind
 from clippy.storage import Storage
 
@@ -112,3 +113,74 @@ def test_existing_plain_entries_can_be_promoted_to_risk_section(tmp_path):
     assert entry.section_id == risk_section.id
     assert "raw IP address" in entry.reason
     storage.close()
+
+
+@pytest.mark.parametrize(
+    "text, expected_slug",
+    [
+        ("Contact release.team@example.org", "email-addresses"),
+        ("Server address: 203.0.113.42", "ip-addresses"),
+        ('{"name": "Clippy", "enabled": true}', "json"),
+        ("SELECT id, name FROM users WHERE active = 1", "sql"),
+        ("async def load_items(limit: int):\n    return []", "python-code"),
+        (
+            "const total = items.reduce((sum, item) => sum + item.value, 0);",
+            "javascript-typescript",
+        ),
+        ("public class ClipboardEntry implements Serializable {", "java-code"),
+        ("[database]\nhost=localhost\nport=5432", "configuration"),
+        ("# Release notes\n\n- Added clipboard search", "markdown"),
+        ("docker compose up --detach", "commands"),
+        ("2026-08-11 14:22:01 ERROR request failed", "errors-logs"),
+        ("wifi password: correct-horse-battery-staple", "passwords"),
+        ("Visual Studio Code", "app-names"),
+        ("#include <vector>\nint main() { return 0; }", "code"),
+        ('package main\n\nfunc main() { println("hello") }', "code"),
+    ],
+)
+def test_enriched_default_sections_use_precise_rules(tmp_path, text, expected_slug):
+    storage = Storage(tmp_path / "enriched.db")
+    result, _ = Classifier(UnavailableEmbedder()).classify(text, storage.list_sections())
+
+    assert storage.get_section(expected_slug).id == result.section_id
+    storage.close()
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "select a color from the menu",
+        "Let us assign a value tomorrow",
+        "The import duties from another office changed",
+        "ERROR is sometimes printed in uppercase",
+    ],
+)
+def test_enriched_rules_do_not_match_common_prose(tmp_path, text):
+    storage = Storage(tmp_path / "precision.db")
+    result, _ = Classifier(UnavailableEmbedder()).classify(text, storage.list_sections())
+
+    assert result.section_id is None
+    storage.close()
+
+
+def test_default_enrichment_migration_preserves_custom_content(tmp_path):
+    database = tmp_path / "section-migration.db"
+    storage = Storage(database)
+    api_keys = storage.get_section("api-keys")
+    passwords = storage.get_section("passwords")
+    api_keys.patterns = ["keyword:my internal token"]
+    passwords.examples = ["my private password phrase"]
+    storage.save_section(api_keys)
+    storage.save_section(passwords)
+    storage.set_meta("default_section_content_version", b"1")
+    storage.close()
+
+    migrated = Storage(database)
+    api_keys = migrated.get_section("api-keys")
+    passwords = migrated.get_section("passwords")
+
+    assert "keyword:my internal token" in api_keys.patterns
+    assert any("github_pat_" in pattern for pattern in api_keys.patterns)
+    assert "my private password phrase" in passwords.examples
+    assert "wifi network password" in passwords.examples
+    migrated.close()

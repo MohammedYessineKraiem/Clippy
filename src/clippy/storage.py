@@ -11,6 +11,8 @@ from .models import Classification, Entry, Section, SectionKind
 from .risk_detection import detect_risk
 from .security import VaultLockedError, VaultManager, new_salt
 
+DEFAULT_SECTION_CONTENT_VERSION = b"2"
+
 DEFAULT_SECTIONS: tuple[dict[str, object], ...] = (
     {
         "name": "Malicious",
@@ -27,8 +29,16 @@ DEFAULT_SECTIONS: tuple[dict[str, object], ...] = (
         "patterns": [
             r"re:\bsk-[A-Za-z0-9_-]{20,}\b",
             r"re:\bghp_[A-Za-z0-9]{30,}\b",
+            r"re:\bgithub_pat_[A-Za-z0-9_]{40,}\b",
+            r"re:\bglpat-[A-Za-z0-9_-]{20,}\b",
             r"re:\bAIza[A-Za-z0-9_-]{30,}\b",
             r"re:\bAKIA[A-Z0-9]{16}\b",
+            r"re:\bnpm_[A-Za-z0-9]{30,}\b",
+            r"re:\bxox[baprs]-[A-Za-z0-9-]{20,}\b",
+            r"re:\bsk_(?:live|test)_[A-Za-z0-9]{20,}\b",
+            r"re:\beyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b",
+            r"re:-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----",
+            r"re:\b(?:Authorization:\s*Bearer|Bearer)\s+[A-Za-z0-9._~+/=-]{20,}",
             "entropy",
         ],
     },
@@ -40,11 +50,61 @@ DEFAULT_SECTIONS: tuple[dict[str, object], ...] = (
         "patterns": [r"re:https?://[^\s]+"],
     },
     {
+        "name": "Email addresses",
+        "slug": "email-addresses",
+        "kind": "structural",
+        "priority": 22,
+        "patterns": [
+            r"re:(?<![\w.+-])[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@"
+            r"(?:[A-Z0-9-]+\.)+[A-Z]{2,63}(?![\w.-])"
+        ],
+    },
+    {
+        "name": "IP addresses",
+        "slug": "ip-addresses",
+        "kind": "structural",
+        "priority": 24,
+        "patterns": [
+            r"re:(?<![\d.])(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)"
+            r"(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}(?![\d.])"
+        ],
+    },
+    {
         "name": "Directories",
         "slug": "directories",
         "kind": "structural",
         "priority": 30,
-        "patterns": [r"re:(?:[A-Za-z]:\\|\\\\)[^\r\n]+", r"re:/(?:home|usr|var|opt|tmp)/[^\r\n]+"],
+        "patterns": [
+            r"re:(?:[A-Za-z]:\\|\\\\)[^\r\n<>|?*]+",
+            r"re:/(?:home|Users|usr|var|opt|tmp|etc|srv)/[^\r\n]+",
+            r"re:file:///(?:[A-Za-z]:/|/)[^\r\n]+",
+            r"re:(?m)^\s*(?:\.\.?[/\\])(?:[\w .-]+[/\\])+[\w .-]+\s*$",
+        ],
+    },
+    {
+        "name": "JSON",
+        "slug": "json",
+        "kind": "syntax",
+        "priority": 34,
+        "patterns": [
+            r"re:(?s)^\s*\{\s*\"[^\"\r\n]+\"\s*:\s*"
+            r"(?:\"|\{|\[|-?\d|true\b|false\b|null\b)",
+            r"re:(?s)^\s*\[\s*\{\s*\"[^\"\r\n]+\"\s*:",
+        ],
+    },
+    {
+        "name": "SQL",
+        "slug": "sql",
+        "kind": "syntax",
+        "priority": 36,
+        "patterns": [
+            r"re:(?is)\bSELECT\b.{1,800}\bFROM\b.{1,800}"
+            r"(?:\bWHERE\b|\bJOIN\b|\bGROUP\s+BY\b|\bORDER\s+BY\b|\bLIMIT\b|\bUNION\b|;)",
+            r"re:(?is)\bINSERT\s+INTO\b.{1,800}\bVALUES\s*\(",
+            r"re:(?is)\bUPDATE\s+[\w.\[\]`\"]+\s+SET\b",
+            r"re:(?is)\bCREATE\s+(?:OR\s+REPLACE\s+)?(?:TABLE|VIEW|INDEX)\b",
+            r"re:(?is)\bALTER\s+TABLE\b.{1,800}\b(?:ADD|DROP|ALTER)\b",
+        ],
     },
     {
         "name": "Python code",
@@ -52,11 +112,32 @@ DEFAULT_SECTIONS: tuple[dict[str, object], ...] = (
         "kind": "syntax",
         "priority": 40,
         "patterns": [
-            "keyword:def ",
-            "keyword:import ",
-            "keyword:from ",
-            "keyword:elif ",
+            r"re:(?m)^\s*(?:async\s+)?def\s+[A-Za-z_]\w*\s*\(",
+            r"re:(?m)^\s*class\s+[A-Za-z_]\w*(?:\([^\r\n]*\))?\s*:",
+            r"re:(?m)^\s*from\s+[\w.]+\s+import\s+(?:[A-Za-z_*]\w*|\([^\r\n]+\))"
+            r"(?:\s+as\s+[A-Za-z_]\w*)?\s*(?:#.*)?$",
+            r"re:(?m)^\s*import\s+[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*"
+            r"(?:\s+as\s+[A-Za-z_]\w*)?(?:\s*,\s*[A-Za-z_]\w*"
+            r"(?:\.[A-Za-z_]\w*)*)*\s*(?:#.*)?$",
+            r"re:(?m)^\s*(?:if|elif|for|while|with|try|except)\b[^\r\n]*:\s*$",
+            "keyword:if __name__ ==",
             "keyword:__name__",
+        ],
+    },
+    {
+        "name": "JavaScript & TypeScript",
+        "slug": "javascript-typescript",
+        "kind": "syntax",
+        "priority": 44,
+        "patterns": [
+            r"re:(?m)^\s*(?:const|let|var)\s+[A-Za-z_$][\w$]*\s*=",
+            r"re:\bfunction\s+[A-Za-z_$][\w$]*\s*\(",
+            r"re:(?:\([^\r\n()]*\)|[A-Za-z_$][\w$]*)\s*=>",
+            r"re:\b(?:console\.(?:log|warn|error)|document\.querySelector|"
+            r"JSON\.(?:parse|stringify))\s*\(",
+            r"re:(?m)^\s*import\s+[^\r\n;]+\s+from\s+['\"][^'\"]+['\"]",
+            r"re:\binterface\s+[A-Za-z_$][\w$]*\s*\{",
+            r"re:\b(?:type|enum|namespace)\s+[A-Za-z_$][\w$]*\s*[={]",
         ],
     },
     {
@@ -68,7 +149,36 @@ DEFAULT_SECTIONS: tuple[dict[str, object], ...] = (
             "keyword:public class",
             "keyword:public static void main",
             "keyword:System.out.",
+            r"re:(?m)^\s*package\s+[a-z]\w*(?:\.[a-z]\w*)*;\s*$",
+            r"re:(?m)^\s*import\s+java(?:x)?\.[\w.*]+;",
+            r"re:\b(?:class|interface|enum)\s+[A-Z]\w*\s*(?:extends|implements|\{)",
+            r"re:@(?:Override|Deprecated|SuppressWarnings)\b",
             r"re:\b(?:private|protected|public)\s+\w+(?:<[^>]+>)?\s+\w+\s*\(",
+        ],
+    },
+    {
+        "name": "Configuration",
+        "slug": "configuration",
+        "kind": "syntax",
+        "priority": 54,
+        "patterns": [
+            r"re:(?m)^\s*\[[A-Za-z0-9_.:-]+\]\s*$\r?\n\s*[A-Za-z_][\w.-]*\s*=",
+            r"re:(?m)^\s*[A-Za-z_][\w.-]*:\s+[^\r\n]+\r?\n"
+            r"(?:\s{2,}[A-Za-z_][\w.-]*:\s*|[A-Za-z_][\w.-]*:\s+)",
+            r"re:(?m)^\s*[A-Z][A-Z0-9_]{1,60}=.*\r?\n[A-Z][A-Z0-9_]{1,60}=",
+            r"re:(?s)^\s*<\?xml\b.{0,3000}<[A-Za-z_][\w:.-]*(?:\s|>)",
+        ],
+    },
+    {
+        "name": "Markdown",
+        "slug": "markdown",
+        "kind": "syntax",
+        "priority": 56,
+        "patterns": [
+            r"re:(?m)^```[A-Za-z0-9_-]*\s*$",
+            r"re:(?m)^#{1,6}\s+\S.+$",
+            r"re:\[[^\]\r\n]+\]\((?:https?://|\./|\.\./|/)[^)\r\n]+\)",
+            r"re:(?m)^\s*[-*+]\s+\[[ xX]\]\s+\S",
         ],
     },
     {
@@ -77,8 +187,28 @@ DEFAULT_SECTIONS: tuple[dict[str, object], ...] = (
         "kind": "syntax",
         "priority": 60,
         "patterns": [
-            r"re:^(?:git|npm|pnpm|pip|python|py|docker|kubectl|cargo|dotnet|winget|curl)\s+[^\r\n]+$",
-            r"re:^\w+(?:\.exe)?\s+(?:--?\w+)[^\r\n]*$",
+            r"re:^\s*(?:git|npm|pnpm|yarn|pip|pipx|python|py|node|deno|docker|"
+            r"podman|kubectl|helm|cargo|rustup|dotnet|winget|choco|scoop|curl|wget|"
+            r"ssh|scp|rsync|make|cmake|gradle|mvn|go)\s+[^\r\n]+$",
+            r"re:^\s*(?:sudo\s+)?[A-Za-z][\w.-]*(?:\.exe)?\s+(?:--?[\w-]+)"
+            r"[^\r\n]*$",
+            r"re:(?m)^\s*(?:PS\s+[^>\r\n]+>|\$)\s+[A-Za-z][^\r\n]+$",
+            r"re:^\s*(?:Get|Set|New|Remove|Start|Stop|Invoke)-[A-Za-z]+\b[^\r\n]*$",
+        ],
+    },
+    {
+        "name": "Errors & Logs",
+        "slug": "errors-logs",
+        "kind": "syntax",
+        "priority": 64,
+        "patterns": [
+            "keyword:Traceback (most recent call last)",
+            r"re:(?m)^\s*(?:Caused by:\s+)?[A-Za-z_$][\w.$]*(?:Exception|Error):\s+.+$",
+            r"re:(?m)^\s*at\s+[A-Za-z_$][\w.$<>]*\s*\([^\r\n]+:\d+(?::\d+)?\)\s*$",
+            r"re:(?m)^\[?\d{4}-\d{2}-\d{2}[T ][^\]\r\n]+\]?\s*"
+            r"(?:ERROR|WARN|WARNING|CRITICAL|FATAL)\b",
+            r"re:\bHTTP/(?:1\.\d|2)\s+[45]\d\d\b",
+            r"re:\b(?:Unhandled|Uncaught)\s+(?:exception|error|rejection)\b",
         ],
     },
     {
@@ -86,24 +216,74 @@ DEFAULT_SECTIONS: tuple[dict[str, object], ...] = (
         "slug": "passwords",
         "kind": "semantic",
         "priority": 70,
-        "examples": ["temporary login password", "account passphrase", "wifi password"],
+        "patterns": [
+            r"re:(?im)^\s*(?:password|passphrase|passwd|pwd|wifi password)\s*[:=]\s*\S+\s*$"
+        ],
+        "examples": [
+            "temporary login password for an account",
+            "account passphrase copied from a password manager",
+            "wifi network password",
+            "one-time access password",
+            "database user password",
+            "router admin passphrase",
+            "recovery password for an encrypted backup",
+            "PIN or secret phrase used to sign in",
+        ],
     },
     {
         "name": "App names",
         "slug": "app-names",
         "kind": "semantic",
         "priority": 80,
-        "examples": ["Visual Studio Code", "Adobe Photoshop", "Windows Terminal"],
+        "patterns": [
+            r"re:^\s*(?:Visual Studio Code|Windows Terminal|PowerShell|PyCharm|IntelliJ IDEA|"
+            r"Android Studio|Adobe Photoshop|Figma|Notion|Discord|Slack|Firefox|Google Chrome)\s*$"
+        ],
+        "examples": [
+            "Visual Studio Code source editor",
+            "Windows Terminal command-line application",
+            "Adobe Photoshop image editor",
+            "PyCharm Python development environment",
+            "IntelliJ IDEA Java development environment",
+            "Figma interface design application",
+            "Notion notes and workspace app",
+            "Mozilla Firefox web browser",
+            "Docker Desktop container application",
+            "Microsoft Teams communication app",
+        ],
     },
     {
         "name": "Code",
         "slug": "code",
         "kind": "semantic",
         "priority": 90,
+        "patterns": [
+            r"re:(?m)^\s*#include\s*[<\"][^>\"\r\n]+[>\"]",
+            r"re:(?m)^\s*using\s+System(?:\.[A-Za-z_]\w*)*;\s*$",
+            r"re:(?m)^\s*namespace\s+[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*\s*[;{]",
+            r"re:(?m)^\s*package\s+[a-z]\w*\s*$[\s\S]{0,2000}^\s*func\s+",
+            r"re:(?m)^\s*(?:pub\s+)?fn\s+[a-z_]\w*\s*(?:<[^\r\n>]+>)?\(",
+            r"re:(?is)<(?:html|body|main|section|div|button|script|style)\b[^>]*>"
+            r".{0,5000}</(?:html|body|main|section|div|button|script|style)>",
+            r"re:(?m)^\s*(?:[.#][A-Za-z_-][\w-]*|[A-Za-z][\w-]*)"
+            r"(?:\s+[.#]?[A-Za-z_-][\w-]*)?\s*\{\s*$",
+        ],
         "examples": [
             "function that transforms a value",
             "programming source code snippet",
-            "configuration object",
+            "class with methods and properties",
+            "algorithm implementation",
+            "unit test for a software component",
+            "unit test asserting that invalid input is rejected",
+            "regular expression and parsing logic",
+            "helper function that parses an API response payload",
+            "data parser that returns typed objects",
+            "error handling and input validation code",
+            "typed data structure definition",
+            "API client method implementation",
+            "HTML component markup",
+            "CSS styling rules",
+            "programming language code block",
         ],
     },
     {
@@ -134,6 +314,7 @@ class Storage:
         self._conn.execute("PRAGMA foreign_keys=ON")
         self._create_schema()
         self._seed_sections()
+        self._enrich_default_sections()
         if self.get_meta("risk_detector_backfill_v1") is None:
             self.flag_existing_risks()
             self.set_meta("risk_detector_backfill_v1", b"1")
@@ -204,6 +385,35 @@ class Storage:
             self._conn.execute(
                 """UPDATE sections SET name='Malicious', slug='malicious', kind='structural',
                 priority=0, visible=1, system=1 WHERE slug='malicious'"""
+            )
+
+    def _enrich_default_sections(self) -> None:
+        if self.get_meta("default_section_content_version") == DEFAULT_SECTION_CONTENT_VERSION:
+            return
+        with self._lock, self._conn:
+            for defaults in DEFAULT_SECTIONS:
+                row = self._conn.execute(
+                    "SELECT system, patterns_json, examples_json FROM sections WHERE slug=?",
+                    (defaults["slug"],),
+                ).fetchone()
+                if row is None or not row["system"]:
+                    continue
+                patterns = json.loads(row["patterns_json"])
+                examples = json.loads(row["examples_json"])
+                for pattern in defaults.get("patterns", []):
+                    if pattern not in patterns:
+                        patterns.append(pattern)
+                for example in defaults.get("examples", []):
+                    if example not in examples:
+                        examples.append(example)
+                self._conn.execute(
+                    "UPDATE sections SET patterns_json=?, examples_json=? WHERE slug=?",
+                    (json.dumps(patterns), json.dumps(examples), defaults["slug"]),
+                )
+            self._conn.execute(
+                """INSERT INTO app_meta(key, value) VALUES('default_section_content_version', ?)
+                ON CONFLICT(key) DO UPDATE SET value=excluded.value""",
+                (DEFAULT_SECTION_CONTENT_VERSION,),
             )
 
     def list_sections(self, visible_only: bool = False) -> list[Section]:

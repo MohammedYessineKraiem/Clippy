@@ -20,10 +20,13 @@ grip. The row controls and supporting labels compact automatically at narrow siz
 
 - Captures text clipboard changes and skips an immediately repeated value.
 - Shows every entry in **All** and classified entries in one additional section.
-- Includes the permanent Malicious risk-warning section, Passwords, Directories, App names, Code,
-  Commands, Python code, Java code, URLs, API keys, and the opt-in encrypted Vault.
+- Includes the permanent Malicious risk-warning section, API keys, URLs, email and IP addresses,
+  directories, JSON, SQL, Python, JavaScript/TypeScript, Java, configuration, Markdown, commands,
+  errors/logs, passwords, app names, general code, and the opt-in encrypted Vault.
 - Single-clicks select entries without closing the popup. Double-click or Enter copies one entry
   back to the clipboard and dismisses the popup.
+- Dragging from one row to another selects only that contiguous range; Ctrl-click adds or removes
+  individual rows and Shift-click extends from the explicit selection anchor.
 - Provides row-local actions for pin, preview, Vault, URL, and Explorer without changing selection.
 - Opens detected HTTP(S) URLs in the default browser and reveals detected paths in Explorer.
 - Merges selected entries with newlines and compares exactly two entries in a neon, aligned,
@@ -40,10 +43,16 @@ Classification stops at the first confident match:
 
 1. Local risk rules flag suspicious commands, destructive or obfuscated behavior, risky URL
    structures, executable downloads, and user-listed domains or sources.
-2. Structural patterns detect API keys, URLs, and paths.
-3. Syntax patterns detect Python, Java, and command-shaped text.
-4. Local semantic prototypes classify remaining entries into Passwords, App names, Code, or a
+2. Structural patterns detect API keys, URLs, email addresses, IP addresses, and paths.
+3. Syntax patterns detect JSON, SQL, Python, JavaScript/TypeScript, Java, configuration, Markdown,
+   command-shaped text, errors, and logs.
+4. Local semantic examples classify remaining entries into Passwords, App names, Code, or a
    custom semantic section. Uncertain entries remain in All only.
+
+Deterministic sections use conservative signatures instead of semantic guesses. Semantic sections
+compare against the closest curated example rather than averaging unrelated examples together.
+This improves recall while preserving the confidence threshold. Classification is still
+heuristic—ambiguous clipboard text cannot be guaranteed to classify perfectly.
 
 The config panel can edit patterns and semantic examples, reorder priority, hide default sections,
 and add or delete custom sections. Classification reasons and semantic scores are available in each

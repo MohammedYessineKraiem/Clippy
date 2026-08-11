@@ -56,6 +56,7 @@ Part of the "Companion Suite" — standalone .exe, shares visual/audio identity 
 - Section tabs are horizontally scrollable if the user has added custom sections
 - Each result row: truncated preview text, section icon, timestamp on hover, quick-action icon(s) on the right (only shown if applicable — link icon for URLs, folder icon for paths), pin icon on hover
 - Single-clicking a row selects it without closing the popup. Double-clicking a row, or pressing Enter with exactly one row selected, copies it back to the system clipboard and closes the popup (with the close animation + confirmation tick sound)
+- Dragging between rows selects only the contiguous pointer range; Ctrl-click toggles individual rows and Shift-click extends from the user's explicit anchor rather than the list's implicit first row.
 - **Preview button**: opens a larger inline expansion (not a new window) showing the full untruncated text, for long entries — dismiss returns to the list without losing search state
 
 ### Search & Filtering
@@ -76,7 +77,7 @@ Part of the "Companion Suite" — standalone .exe, shares visual/audio identity 
 ## 3. Classifier (Sections)
 
 ### Default sections
-`All` (implicit, shows everything) - `Malicious` - `Passwords` - `Directories` - `App names` - `Code` - `Commands` - `Python code` - `Java code` - `URLs` - `API keys`
+`All` (implicit, shows everything) - `Malicious` - `API keys` - `URLs` - `Email addresses` - `IP addresses` - `Directories` - `JSON` - `SQL` - `Python code` - `JavaScript & TypeScript` - `Java code` - `Configuration` - `Markdown` - `Commands` - `Errors & Logs` - `Passwords` - `App names` - `Code`
 
 Every captured entry is always included in `All`. A classified entry is also shown in its assigned section. Classification assigns at most one non-`All` section, based on tier priority and the first confident match. Entries that do not clear the semantic confidence threshold remain visible in `All` only.
 
@@ -87,12 +88,20 @@ Structural facts are cheap to detect with regex and are unambiguous — no reaso
 - **Directories**: path-like patterns (`C:\...`, `/home/...`, path separators + known extensions)
 - **API keys**: curated pattern library for known key formats (`sk-...`, `ghp_...`, `AIza...`, `AKIA...`, etc.) plus a generic high-entropy-string fallback — the same approach real secret-scanners (gitleaks, truffleHog) use, no ML needed
 - **URLs**: standard URL pattern
+- **Email addresses**: bounded mailbox and domain pattern
+- **IP addresses**: validated IPv4 octets outside URL context
 - **Malicious**: permanent, highest-priority local risk warnings for dangerous or obfuscated commands, destructive behavior, suspicious URL structures, direct executable/script downloads, and user-maintained URL/domain/source markers. Built-in rules cannot be disabled or edited; custom markers are editable. Matches are warnings rather than definitive malware verdicts.
 
 **Tier 2 — Syntax signatures (near-zero cost, runs second)**
 - **Python code**: syntax signatures (`def `, `import `, indentation patterns)
 - **Java code**: syntax signatures (`public class`, `void`, semicolon-terminated blocks)
+- **JSON**: object or object-array structure with quoted keys and JSON values
+- **SQL**: statement signatures requiring SQL-specific clause combinations
+- **JavaScript & TypeScript**: declarations, functions, arrow syntax, imports, and type signatures
+- **Configuration**: INI/TOML sections, multi-line YAML, environment blocks, and XML declarations
+- **Markdown**: headings, fenced code, links, and task-list syntax
 - **Commands**: shell-command-like patterns (known verbs, flag syntax `--`/`-x`) — classification only, **the app never executes these**
+- **Errors & Logs**: stack traces, exceptions, timestamped severity lines, and HTTP failures
 
 **Tier 3 — Semantic matching (only for what's left)**
 - Anything that didn't confidently match Tier 1 or 2 — including **Passwords** (genuinely ambiguous without a source-app signal), **App names**, general **Code**, and any user-defined **custom/topic section** — falls to this tier

@@ -7,6 +7,7 @@ from PySide6.QtCore import (
     QAbstractAnimation,
     QEasingCurve,
     QEvent,
+    QItemSelectionModel,
     QObject,
     QParallelAnimationGroup,
     QPoint,
@@ -90,6 +91,7 @@ class DragBar(QFrame):
 class EntryRow(QWidget):
     activated = Signal(int)
     selection_requested = Signal(int, object)
+    drag_selection_moved = Signal(QPoint)
     pin_requested = Signal(int, bool)
     preview_requested = Signal(int)
     url_requested = Signal(int)
@@ -179,6 +181,19 @@ class EntryRow(QWidget):
             return
         super().mouseDoubleClickEvent(event)
 
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        if event.buttons() & Qt.MouseButton.LeftButton:
+            self.drag_selection_moved.emit(event.globalPosition().toPoint())
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
 
 class PopupWindow(QWidget):
     _RESIZE_MARGIN = 9
@@ -205,6 +220,8 @@ class PopupWindow(QWidget):
         self._opening = False
         self._config_dialog: ConfigDialog | None = None
         self._diff_dialog: DiffDialog | None = None
+        self._selection_anchor_row: int | None = None
+        self._drag_base_selection: set[int] = set()
         self._preferred_size = QSize(760, 540)
         self.setObjectName("Panel")
         self.setWindowFlags(
@@ -367,6 +384,8 @@ class PopupWindow(QWidget):
             return
         self.entries = {entry.id: entry for entry in found}
         self.list.clear()
+        self._selection_anchor_row = None
+        self._drag_base_selection.clear()
         compact = self.width() < 650
         for entry in found:
             item = QListWidgetItem()
@@ -377,6 +396,7 @@ class PopupWindow(QWidget):
             row.set_compact(compact)
             row.activated.connect(self._activate_entry)
             row.selection_requested.connect(self._select_entry)
+            row.drag_selection_moved.connect(self._drag_select_to)
             row.pin_requested.connect(self._pin)
             row.preview_requested.connect(self._preview)
             row.url_requested.connect(self._open_url)
@@ -462,7 +482,16 @@ class PopupWindow(QWidget):
         group.finished.connect(self._finish_close)
         self._animation = group
         group.start(QAbstractAnimation.DeletionPolicy.KeepWhenStopped)
+        QTimer.singleShot(260, self._finish_close_if_needed)
         self.audio.play("close")
+
+    def _finish_close_if_needed(self) -> None:
+        if not self._closing:
+            return
+        animation = getattr(self, "_animation", None)
+        if animation is not None:
+            animation.stop()
+        self._finish_close()
 
     def _finish_close(self) -> None:
         self.hide()
@@ -636,16 +665,47 @@ class PopupWindow(QWidget):
             return
         item = self.list.item(target_row)
         keyboard_modifiers = modifiers
+        selected_before = {
+            selected.data(Qt.ItemDataRole.UserRole) for selected in self.list.selectedItems()
+        }
         if keyboard_modifiers & Qt.KeyboardModifier.ControlModifier:
             item.setSelected(not item.isSelected())
-        elif keyboard_modifiers & Qt.KeyboardModifier.ShiftModifier and self.list.currentRow() >= 0:
-            start, end = sorted((self.list.currentRow(), target_row))
+            self._drag_base_selection = selected_before
+            self._selection_anchor_row = target_row
+        elif (
+            keyboard_modifiers & Qt.KeyboardModifier.ShiftModifier
+            and self._selection_anchor_row is not None
+        ):
+            start, end = sorted((self._selection_anchor_row, target_row))
+            self.list.clearSelection()
             for index in range(start, end + 1):
                 self.list.item(index).setSelected(True)
         else:
             self.list.clearSelection()
             item.setSelected(True)
-        self.list.setCurrentItem(item)
+            self._drag_base_selection.clear()
+            self._selection_anchor_row = target_row
+        self.list.setCurrentItem(item, QItemSelectionModel.SelectionFlag.NoUpdate)
+
+    def _drag_select_to(self, global_position: QPoint) -> None:
+        if self._selection_anchor_row is None:
+            return
+        viewport_position = self.list.viewport().mapFromGlobal(global_position)
+        target_item = self.list.itemAt(viewport_position)
+        if target_item is None:
+            return
+        target_row = self.list.row(target_item)
+        start, end = sorted((self._selection_anchor_row, target_row))
+        self.list.blockSignals(True)
+        self.list.clearSelection()
+        for index in range(self.list.count()):
+            item = self.list.item(index)
+            entry_id = item.data(Qt.ItemDataRole.UserRole)
+            if entry_id in self._drag_base_selection or start <= index <= end:
+                item.setSelected(True)
+        self.list.setCurrentItem(target_item, QItemSelectionModel.SelectionFlag.NoUpdate)
+        self.list.blockSignals(False)
+        self._selection_changed()
 
     def _selected_entries(self) -> list[Entry]:
         return [

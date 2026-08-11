@@ -31,7 +31,7 @@ class Classifier:
         for section in active:
             if section.slug == "malicious":
                 continue
-            if section.kind in {SectionKind.STRUCTURAL, SectionKind.SYNTAX}:
+            if section.patterns:
                 reason = self._match_patterns(text, section.patterns)
                 if reason:
                     return Classification(section.id, reason), embedding
@@ -44,8 +44,10 @@ class Classifier:
         for section in active:
             if section.kind is not SectionKind.SEMANTIC or not section.examples:
                 continue
-            prototype = self._prototype(section)
-            score = cosine_similarity(vector, prototype)
+            prototypes = self._example_vectors(section)
+            if not prototypes.size:
+                continue
+            score = max(cosine_similarity(vector, prototype) for prototype in prototypes)
             if score > best_score:
                 best_section, best_score = section, score
 
@@ -56,18 +58,20 @@ class Classifier:
             None, f"no semantic prototype above {self.semantic_threshold:.2f}"
         ), embedding
 
-    def _prototype(self, section: Section) -> np.ndarray:
+    def _example_vectors(self, section: Section) -> np.ndarray:
         key = (section.id, tuple(section.examples))
         cached = self._prototype_cache.get(key)
         if cached is not None:
             return cached
-        vectors = [self.embedder.encode(example) for example in section.examples]
-        prototype = np.mean(vectors, axis=0).astype(np.float32)
-        norm = np.linalg.norm(prototype)
-        if norm:
-            prototype /= norm
-        self._prototype_cache[key] = prototype
-        return prototype
+        vectors: list[np.ndarray] = []
+        for example in section.examples:
+            vector = self.embedder.encode(example).astype(np.float32)
+            norm = np.linalg.norm(vector)
+            if norm:
+                vectors.append(vector / norm)
+        prototypes = np.stack(vectors) if vectors else np.empty((0, 0), dtype=np.float32)
+        self._prototype_cache[key] = prototypes
+        return prototypes
 
     def clear_prototype_cache(self) -> None:
         self._prototype_cache.clear()
@@ -75,8 +79,10 @@ class Classifier:
     def _match_patterns(self, text: str, patterns: list[str]) -> str | None:
         for pattern in patterns:
             try:
-                if pattern == "entropy" and _looks_like_secret(text):
-                    return "matched generic high-entropy secret"
+                if pattern == "entropy":
+                    if _looks_like_secret(text):
+                        return "matched generic high-entropy secret"
+                    continue
                 if pattern.startswith("keyword:"):
                     keyword = pattern[8:]
                     if keyword.casefold() in text.casefold():

@@ -5,6 +5,7 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import QPoint, Qt
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QToolButton
 
 from clippy.audio import AudioService
@@ -63,9 +64,59 @@ def test_single_select_stays_open_and_activation_copies(tmp_path, monkeypatch):
 
     copied: list[str] = []
     monkeypatch.setattr("clippy.ui.popup.pyperclip.copy", copied.append)
-    popup._activate_entry(entry_id)
+    QTest.mouseDClick(
+        row,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+        row.rect().center(),
+    )
     assert copied == ["copy me"]
     assert popup._closing
+    QTest.qWait(300)
+    assert not popup.isVisible()
+    storage.close()
+
+
+def test_drag_selects_only_rows_between_pointer_endpoints(tmp_path):
+    application = _application()
+    storage = Storage(tmp_path / "drag-selection.db", VaultManager())
+    for index in range(6):
+        storage.add_entry(f"row {index}", Classification(None, "test"), None)
+    embedder = UnavailableEmbedder()
+    popup = PopupWindow(
+        storage,
+        SearchService(storage, embedder),
+        CaptureService(storage, Classifier(embedder)),
+        AudioService(),
+        AppSettings(pin_open=True),
+        lambda _parent: None,
+    )
+    popup.rebuild_tabs()
+    popup.refresh()
+    popup.show()
+    application.processEvents()
+
+    source = popup.list.itemWidget(popup.list.item(3))
+    target = popup.list.itemWidget(popup.list.item(4))
+    assert isinstance(source, EntryRow)
+    assert isinstance(target, EntryRow)
+    destination = source.mapFromGlobal(target.mapToGlobal(target.rect().center()))
+    QTest.mousePress(
+        source,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+        source.rect().center(),
+    )
+    QTest.mouseMove(source, destination, delay=20)
+    QTest.mouseRelease(
+        source,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+        destination,
+    )
+    application.processEvents()
+
+    assert sorted(popup.list.row(item) for item in popup.list.selectedItems()) == [3, 4]
     popup.hide()
     storage.close()
 
