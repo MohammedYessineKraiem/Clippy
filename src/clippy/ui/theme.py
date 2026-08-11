@@ -178,6 +178,12 @@ QLabel#Secondary {
     border: none;
     font-size: 9px;
 }
+QLabel#ResizeHint {
+    color: #6F5D79;
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 1px;
+}
 QTextBrowser#DiffBrowser {
     background: #09050D;
     border: 1px solid #5B2B73;
@@ -205,5 +211,15 @@ QScrollBar::handle:vertical {
     border-radius: 3px;
 }
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
-QSizeGrip { width: 14px; height: 14px; }
+QSizeGrip {
+    width: 16px;
+    height: 16px;
+    background: #160B20;
+    border: 1px solid #653184;
+    border-radius: 2px;
+}
+QSizeGrip:hover {
+    background: #281036;
+    border-color: #E040FB;
+}
 """

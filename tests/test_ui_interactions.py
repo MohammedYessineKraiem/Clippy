@@ -4,7 +4,7 @@ import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPoint, Qt
 from PySide6.QtWidgets import QApplication, QToolButton
 
 from clippy.audio import AudioService
@@ -52,6 +52,14 @@ def test_single_select_stays_open_and_activation_copies(tmp_path, monkeypatch):
     popup.resize(520, 380)
     application.processEvents()
     assert not row.time_label.isVisible()
+    assert "VLT" in {button.text() for button in row.findChildren(QToolButton)}
+    popup.resize(430, 320)
+    application.processEvents()
+    assert popup.title_label.text() == "CLIPPY"
+    assert not popup.selected_label.isVisible()
+    assert popup._resize_edges_at(QPoint(1, 1)) == (Qt.Edge.TopEdge | Qt.Edge.LeftEdge)
+    assert popup._resize_edges_at(QPoint(429, 319)) == (Qt.Edge.BottomEdge | Qt.Edge.RightEdge)
+    assert popup._resize_edges_at(QPoint(215, 160)) == Qt.Edge(0)
 
     copied: list[str] = []
     monkeypatch.setattr("clippy.ui.popup.pyperclip.copy", copied.append)

@@ -13,6 +13,8 @@ runtime model downloader.
 The default global hotkey is **Ctrl+Alt+V**. It is remappable from the configuration panel. Press
 the hotkey again, click outside the popup, press Escape, or use the popup's X control to dismiss it.
 Use **Quit Clippy** in configuration to stop the background application completely.
+Move the popup from its title bar and resize it from any edge, corner, or the visible lower-right
+grip. The row controls and supporting labels compact automatically at narrow sizes.
 
 ## What it does
 

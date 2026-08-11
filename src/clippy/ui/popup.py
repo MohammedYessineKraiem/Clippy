@@ -99,11 +99,12 @@ class EntryRow(QWidget):
     def __init__(self, entry: Entry, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.entry = entry
+        self._action_buttons: list[tuple[QToolButton, str, str]] = []
         self.setObjectName("EntryRow")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(11, 7, 8, 7)
-        layout.setSpacing(7)
+        self._layout = QHBoxLayout(self)
+        self._layout.setContentsMargins(11, 7, 8, 7)
+        self._layout.setSpacing(7)
 
         content = QVBoxLayout()
         content.setContentsMargins(0, 0, 0, 0)
@@ -125,38 +126,42 @@ class EntryRow(QWidget):
         metadata.addWidget(self.time_label)
         metadata.addStretch()
         content.addLayout(metadata)
-        layout.addLayout(content, 1)
+        self._layout.addLayout(content, 1)
 
         if extract_url(entry.text):
-            button = self._action_button("URL", "Open in the default browser")
+            button = self._action_button("URL", "URL", "Open in the default browser")
             button.clicked.connect(lambda: self.url_requested.emit(entry.id))
-            layout.addWidget(button)
+            self._layout.addWidget(button)
         if extract_path(entry.text):
-            button = self._action_button("FILE", "Reveal in Explorer")
+            button = self._action_button("FILE", "FILE", "Reveal in Explorer")
             button.clicked.connect(lambda: self.path_requested.emit(entry.id))
-            layout.addWidget(button)
+            self._layout.addWidget(button)
         if not entry.vault:
-            button = self._action_button("VAULT", "Encrypt and move to Vault")
+            button = self._action_button("VAULT", "VLT", "Encrypt and move to Vault")
             button.clicked.connect(lambda: self.vault_requested.emit(entry.id))
-            layout.addWidget(button)
-        preview = self._action_button("VIEW", "Preview full text")
+            self._layout.addWidget(button)
+        preview = self._action_button("VIEW", "VIEW", "Preview full text")
         preview.clicked.connect(lambda: self.preview_requested.emit(entry.id))
-        layout.addWidget(preview)
-        pin = self._action_button("UNPIN" if entry.pinned else "PIN", "Toggle pin")
+        self._layout.addWidget(preview)
+        pin = self._action_button("UNPIN" if entry.pinned else "PIN", "PIN", "Toggle pin")
         pin.clicked.connect(lambda: self.pin_requested.emit(entry.id, not entry.pinned))
-        layout.addWidget(pin)
+        self._layout.addWidget(pin)
         self.setToolTip(f"{entry.created_at.astimezone():%Y-%m-%d %H:%M:%S}\n{entry.reason or ''}")
 
-    @staticmethod
-    def _action_button(text: str, tooltip: str) -> QToolButton:
+    def _action_button(self, text: str, compact_text: str, tooltip: str) -> QToolButton:
         button = QToolButton()
         button.setObjectName("RowAction")
         button.setText(text)
         button.setToolTip(tooltip)
+        self._action_buttons.append((button, text, compact_text))
         return button
 
     def set_compact(self, compact: bool) -> None:
         self.time_label.setVisible(not compact)
+        self._layout.setSpacing(4 if compact else 7)
+        self._layout.setContentsMargins(8 if compact else 11, 7, 6 if compact else 8, 7)
+        for button, full_text, compact_text in self._action_buttons:
+            button.setText(compact_text if compact else full_text)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
@@ -174,6 +179,8 @@ class EntryRow(QWidget):
 
 
 class PopupWindow(QWidget):
+    _RESIZE_MARGIN = 9
+
     def __init__(
         self,
         storage: Storage,
@@ -203,8 +210,9 @@ class PopupWindow(QWidget):
             | Qt.WindowType.Tool
             | Qt.WindowType.WindowStaysOnTopHint
         )
-        self.setMinimumSize(500, 350)
+        self.setMinimumSize(420, 320)
         self.resize(self._preferred_size)
+        self.setMouseTracking(True)
         self._build_ui()
         self._search_timer = QTimer(self)
         self._search_timer.setSingleShot(True)
@@ -232,15 +240,15 @@ class PopupWindow(QWidget):
                 )
             )
             title_layout.addWidget(logo)
-        title = QLabel("CLIPPY  //  LOCAL CLIPBOARD")
-        title.setObjectName("PanelTitle")
-        title.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-        title_layout.addWidget(title)
+        self.title_label = QLabel("CLIPPY  //  LOCAL CLIPBOARD")
+        self.title_label.setObjectName("PanelTitle")
+        self.title_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        title_layout.addWidget(self.title_label)
         title_layout.addStretch()
-        drag_hint = QLabel("DRAG")
-        drag_hint.setObjectName("Secondary")
-        drag_hint.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-        title_layout.addWidget(drag_hint)
+        self.drag_hint = QLabel("DRAG")
+        self.drag_hint.setObjectName("Secondary")
+        self.drag_hint.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        title_layout.addWidget(self.drag_hint)
         close_button = QToolButton()
         close_button.setObjectName("WindowControl")
         close_button.setText("X")
@@ -295,7 +303,13 @@ class PopupWindow(QWidget):
         footer.addStretch()
         footer.addWidget(self.copy_merged)
         footer.addWidget(self.diff)
-        footer.addWidget(QSizeGrip(self))
+        self.resize_hint = QLabel("RESIZE")
+        self.resize_hint.setObjectName("ResizeHint")
+        self.resize_hint.setToolTip("Drag any window edge or corner to resize")
+        footer.addWidget(self.resize_hint)
+        self.size_grip = QSizeGrip(self)
+        self.size_grip.setToolTip("Drag to resize")
+        footer.addWidget(self.size_grip)
         list_layout.addLayout(footer)
         self.stack.addWidget(list_page)
 
@@ -318,6 +332,7 @@ class PopupWindow(QWidget):
         root.addWidget(self.stack, 1)
         self._update_mode_badge()
         self._selection_changed()
+        self._apply_responsive_layout()
 
     def rebuild_tabs(self) -> None:
         active = self.current_section
@@ -386,6 +401,8 @@ class PopupWindow(QWidget):
             return
         available = screen.availableGeometry()
         size = self._preferred_size.expandedTo(self.minimumSize())
+        size.setWidth(min(size.width(), available.width()))
+        size.setHeight(min(size.height(), available.height()))
         target = QRect(cursor.x() - 55, cursor.y() - 30, size.width(), size.height())
         target.moveLeft(
             max(available.left(), min(target.left(), available.right() - target.width()))
@@ -500,11 +517,69 @@ class PopupWindow(QWidget):
         super().resizeEvent(event)
         if self.isVisible() and not self._opening and not self._closing:
             self._preferred_size = event.size()
+        self._apply_responsive_layout()
         compact = event.size().width() < 650
         for index in range(self.list.count()):
             row = self.list.itemWidget(self.list.item(index))
             if isinstance(row, EntryRow):
                 row.set_compact(compact)
+
+    def _apply_responsive_layout(self) -> None:
+        compact = self.width() < 650
+        narrow = self.width() < 500
+        self.title_label.setText("CLIPPY" if narrow else "CLIPPY  //  LOCAL CLIPBOARD")
+        self.drag_hint.setVisible(not compact)
+        self.selected_label.setVisible(not narrow)
+        self.resize_hint.setText("SIZE" if compact else "RESIZE")
+
+    def _resize_edges_at(self, position: QPoint) -> Qt.Edges:
+        edges = Qt.Edge(0)
+        if position.x() <= self._RESIZE_MARGIN:
+            edges |= Qt.Edge.LeftEdge
+        elif position.x() >= self.width() - self._RESIZE_MARGIN:
+            edges |= Qt.Edge.RightEdge
+        if position.y() <= self._RESIZE_MARGIN:
+            edges |= Qt.Edge.TopEdge
+        elif position.y() >= self.height() - self._RESIZE_MARGIN:
+            edges |= Qt.Edge.BottomEdge
+        return edges
+
+    @staticmethod
+    def _resize_cursor(edges: Qt.Edges) -> Qt.CursorShape:
+        if edges in (
+            Qt.Edge.TopEdge | Qt.Edge.LeftEdge,
+            Qt.Edge.BottomEdge | Qt.Edge.RightEdge,
+        ):
+            return Qt.CursorShape.SizeFDiagCursor
+        if edges in (
+            Qt.Edge.TopEdge | Qt.Edge.RightEdge,
+            Qt.Edge.BottomEdge | Qt.Edge.LeftEdge,
+        ):
+            return Qt.CursorShape.SizeBDiagCursor
+        if edges & (Qt.Edge.LeftEdge | Qt.Edge.RightEdge):
+            return Qt.CursorShape.SizeHorCursor
+        return Qt.CursorShape.SizeVerCursor
+
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        edges = self._resize_edges_at(event.position().toPoint())
+        if edges and not event.buttons():
+            self.setCursor(self._resize_cursor(edges))
+        elif not event.buttons():
+            self.unsetCursor()
+        super().mouseMoveEvent(event)
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            edges = self._resize_edges_at(event.position().toPoint())
+            window = self.windowHandle()
+            if edges and window is not None and window.startSystemResize(edges):
+                event.accept()
+                return
+        super().mousePressEvent(event)
+
+    def leaveEvent(self, event: QEvent) -> None:
+        self.unsetCursor()
+        super().leaveEvent(event)
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
         if event.key() == Qt.Key.Key_Escape:
