@@ -35,7 +35,7 @@ Part of the "Companion Suite" — standalone .exe, shares visual/audio identity 
   5. A subtle capture sound plays (if enabled)
 
 ### Invocation
-- Global hotkey (default: **Ctrl+Alt+V** — avoids the Windows language-switcher conflict on Win+Space; remappable in config) opens the popup
+- Global hotkey (default: **Ctrl+Alt+V** — avoids the Windows language-switcher conflict on Win+Space; remappable in config) toggles the popup open/closed
 - Popup opens near the cursor position (falls back to screen-center on multi-monitor edge cases) with the signature open animation
 - Popup is always-on-top, loses focus → auto-dismiss with the close animation (configurable: pin-open toggle for users who want it to stay)
 
@@ -55,7 +55,7 @@ Part of the "Companion Suite" — standalone .exe, shares visual/audio identity 
 ```
 - Section tabs are horizontally scrollable if the user has added custom sections
 - Each result row: truncated preview text, section icon, timestamp on hover, quick-action icon(s) on the right (only shown if applicable — link icon for URLs, folder icon for paths), pin icon on hover
-- Selecting a row (click or Enter) copies it back to the system clipboard and closes the popup (with the close animation + confirmation tick sound)
+- Single-clicking a row selects it without closing the popup. Double-clicking a row, or pressing Enter with exactly one row selected, copies it back to the system clipboard and closes the popup (with the close animation + confirmation tick sound)
 - **Preview button**: opens a larger inline expansion (not a new window) showing the full untruncated text, for long entries — dismiss returns to the list without losing search state
 
 ### Search & Filtering
@@ -65,10 +65,10 @@ Part of the "Companion Suite" — standalone .exe, shares visual/audio identity 
   - `before:` / `after:` / `today` / `yesterday` — time-based filtering (e.g. `before:tuesday`)
   - Free text still does substring/fuzzy match against entry content
   - Operators are combinable: `yealio .bak section:directories`
-- Matching is a two-layer pass:
-  1. **Fast layer**: substring + light fuzzy matching (typo-tolerant) on the raw text — instant, runs on every keystroke
-  2. **Semantic layer**: the query and all candidate entries are compared via a small local embedding model, re-ranking results by meaning — this is what makes a query like "python code for loading a model" surface a snippet that never contains those exact words
-- Semantic layer only re-ranks the set already narrowed by section/operator filters, so it's never scoring the whole database — keeps it fast even as history grows
+- Search mode is configurable and mutually exclusive:
+  1. **Fast mode** (default): substring + light fuzzy matching (typo-tolerant) on the raw text — instant, runs on every keystroke
+  2. **Semantic mode**: the query and all section/operator-filtered entries are ranked only by cosine similarity against the local embedding model — this makes a query like "python code for loading a model" surface a snippet that never contains those exact words
+- A mode badge beside the search field always shows whether `FAST` or `SEMANTIC` is active.
 - Every entry's embedding is computed **once, at capture time**, and cached in the database — search time never pays the embedding cost for existing entries, only for the live query text itself (a few milliseconds)
 
 ---
@@ -186,5 +186,8 @@ Structural facts are cheap to detect with regex and are unambiguous — no reaso
 - Duplicate cleanup removes exact text duplicates only, keeps the newest timestamp, and preserves the newest record's pin/vault state.
 - Custom sections automatically support `section:<name>` search operators.
 - The project uses the MIT license.
+- The popup is movable through its title bar and resizable through its lower-right grip, with a responsive compact row layout.
+- Vault move is a row-local action; it creates or unlocks the vault inline when required.
+- The config panel includes an explicit `Quit Clippy` control for stopping the background process.
 
 The former open question is resolved by the decision above: custom sections automatically receive `section:<name>` search operators.

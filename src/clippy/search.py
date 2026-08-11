@@ -65,7 +65,13 @@ class SearchService:
         self.storage = storage
         self.embedder = embedder
 
-    def search(self, raw: str, selected_section: str = "all", limit: int = 100) -> list[Entry]:
+    def search(
+        self,
+        raw: str,
+        selected_section: str = "all",
+        limit: int = 100,
+        semantic_only: bool = False,
+    ) -> list[Entry]:
         query = parse_search_query(raw)
         section = query.section_slug or selected_section
         entries = self.storage.list_entries(section, query.before, query.after, limit=500)
@@ -83,15 +89,26 @@ class SearchService:
             )
             fast_scores[entry.id] = max(substring, fuzzy, token_hit)
 
-        narrowed = [entry for entry in entries if fast_scores[entry.id] >= 0.22]
-        candidates = narrowed or entries
+        if not semantic_only:
+            candidates = [entry for entry in entries if fast_scores[entry.id] >= 0.22]
+            return sorted(
+                candidates,
+                key=lambda entry: (
+                    int(entry.pinned),
+                    fast_scores[entry.id],
+                    entry.created_at.timestamp(),
+                ),
+                reverse=True,
+            )[:limit]
+
         query_vector = self.embedder.encode(query.text)
+        if not query_vector.size:
+            return []
 
-        def rank(entry: Entry) -> tuple[int, float, float]:
-            semantic = 0.0
-            if query_vector.size and entry.embedding:
-                semantic = cosine_similarity(query_vector, blob_to_vector(entry.embedding))
-            combined = fast_scores[entry.id] * 0.45 + max(0.0, semantic) * 0.55
-            return (int(entry.pinned), combined, entry.created_at.timestamp())
+        def semantic_rank(entry: Entry) -> tuple[int, float, float]:
+            score = 0.0
+            if entry.embedding:
+                score = cosine_similarity(query_vector, blob_to_vector(entry.embedding))
+            return (int(entry.pinned), score, entry.created_at.timestamp())
 
-        return sorted(candidates, key=rank, reverse=True)[:limit]
+        return sorted(entries, key=semantic_rank, reverse=True)[:limit]

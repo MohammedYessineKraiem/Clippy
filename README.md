@@ -10,7 +10,9 @@ search from a compact keyboard-driven popup. Clipboard data, settings, embedding
 contents stay on the machine. Clippy contains no HTTP client, cloud integration, telemetry, or
 runtime model downloader.
 
-The default global hotkey is **Ctrl+Alt+V**. It is remappable from the configuration panel.
+The default global hotkey is **Ctrl+Alt+V**. It is remappable from the configuration panel. Press
+the hotkey again, click outside the popup, press Escape, or use the popup's X control to dismiss it.
+Use **Quit Clippy** in configuration to stop the background application completely.
 
 ## What it does
 
@@ -18,9 +20,12 @@ The default global hotkey is **Ctrl+Alt+V**. It is remappable from the configura
 - Shows every entry in **All** and classified entries in one additional section.
 - Includes Passwords, Directories, App names, Code, Commands, Python code, Java code, URLs,
   API keys, and the opt-in encrypted Vault.
-- Pins entries, previews long text inline, and copies an entry back with one click or Enter.
+- Single-clicks select entries without closing the popup. Double-click or Enter copies one entry
+  back to the clipboard and dismisses the popup.
+- Provides row-local actions for pin, preview, Vault, URL, and Explorer without changing selection.
 - Opens detected HTTP(S) URLs in the default browser and reveals detected paths in Explorer.
-- Merges selected entries with newlines and compares exactly two entries with a line diff.
+- Merges selected entries with newlines and compares exactly two entries in a neon, aligned,
+  side-by-side line diff.
 - Finds and merges exact duplicates while retaining the newest record.
 - Supports per-section expiry based on capture time. Pinned entries remain subject to expiry;
   Vault defaults to never expiring.
@@ -40,8 +45,9 @@ The config panel can edit patterns and semantic examples, reorder priority, hide
 and add or delete custom sections. Classification reasons and semantic scores are available in each
 row's tooltip.
 
-Search performs substring and light typo-tolerant matching, then re-ranks filtered candidates with
-the same local embedding model. Operators can be combined:
+Search has two exclusive modes controlled in configuration. **Fast** uses substring and light
+typo-tolerant matching. **Semantic** ranks the section/operator-filtered entries by meaning only,
+using the local embedding model. Operators can be combined in either mode:
 
 ```text
 section:python-code model loader after:2026-08-01

@@ -108,6 +108,7 @@ class ClippyRuntime:
             self.storage, self.settings, self.settings_store, self.classifier, parent
         )
         dialog.settings_changed.connect(self._apply_settings)
+        dialog.quit_requested.connect(self.application.quit)
         return dialog
 
     def _apply_settings(self) -> None:

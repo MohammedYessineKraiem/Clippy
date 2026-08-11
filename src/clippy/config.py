@@ -35,6 +35,7 @@ def bundled_logo_path() -> Path:
 class AppSettings:
     hotkey: str = "<ctrl>+<alt>+v"
     pin_open: bool = False
+    semantic_search_enabled: bool = False
     sounds_enabled: bool = False
     sound_volume: float = 0.25
     vault_auto_lock_seconds: int = 60

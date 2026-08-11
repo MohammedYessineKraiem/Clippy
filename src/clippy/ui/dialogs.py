@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import difflib
+import html
 import re
 
 from PySide6.QtCore import (
@@ -129,24 +130,122 @@ class SectionEditor(AnimatedDialog):
 class DiffDialog(AnimatedDialog):
     def __init__(self, left: str, right: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Compare entries")
-        self.resize(900, 600)
+        self.setObjectName("DiffDialog")
+        self.setWindowTitle("Clippy diff")
+        self.setMinimumSize(660, 420)
+        self.resize(980, 640)
         layout = QVBoxLayout(self)
+        layout.setSpacing(10)
+        title = QLabel("DIFF // TWO CLIPS")
+        title.setObjectName("PanelTitle")
+        layout.addWidget(title)
+        rows, changed, added, removed = self._build_rows(left, right)
+        summary = QLabel(f"{changed} changed   /   {added} added   /   {removed} removed")
+        summary.setObjectName("Secondary")
+        layout.addWidget(summary)
         browser = QTextBrowser()
-        browser.setHtml(
-            difflib.HtmlDiff(wrapcolumn=80).make_file(
-                left.splitlines(), right.splitlines(), "First", "Second", context=True, numlines=3
-            )
-        )
+        browser.setObjectName("DiffBrowser")
+        browser.setHtml(self._render_html(rows))
         layout.addWidget(browser)
         close = QPushButton("Close")
+        close.setObjectName("PrimaryButton")
         close.clicked.connect(self.reject)
-        layout.addWidget(close)
+        footer = QHBoxLayout()
+        footer.addWidget(QLabel("Purple = changed   Cyan = added   Magenta = removed"))
+        footer.addStretch()
+        footer.addWidget(close)
+        layout.addLayout(footer)
+
+    @staticmethod
+    def _build_rows(
+        left: str, right: str
+    ) -> tuple[list[tuple[int | None, str, int | None, str, str]], int, int, int]:
+        left_lines = left.splitlines() or [""]
+        right_lines = right.splitlines() or [""]
+        matcher = difflib.SequenceMatcher(None, left_lines, right_lines)
+        rows: list[tuple[int | None, str, int | None, str, str]] = []
+        changed = added = removed = 0
+        for operation, left_start, left_end, right_start, right_end in matcher.get_opcodes():
+            if operation == "equal":
+                for offset in range(left_end - left_start):
+                    rows.append(
+                        (
+                            left_start + offset + 1,
+                            left_lines[left_start + offset],
+                            right_start + offset + 1,
+                            right_lines[right_start + offset],
+                            "equal",
+                        )
+                    )
+                continue
+            count = max(left_end - left_start, right_end - right_start)
+            for offset in range(count):
+                has_left = left_start + offset < left_end
+                has_right = right_start + offset < right_end
+                left_number = left_start + offset + 1 if has_left else None
+                right_number = right_start + offset + 1 if has_right else None
+                left_text = left_lines[left_start + offset] if has_left else ""
+                right_text = right_lines[right_start + offset] if has_right else ""
+                state = operation
+                if operation == "replace":
+                    if has_left and has_right:
+                        changed += 1
+                    elif has_right:
+                        state = "insert"
+                        added += 1
+                    else:
+                        state = "delete"
+                        removed += 1
+                elif operation == "insert":
+                    added += 1
+                else:
+                    removed += 1
+                rows.append((left_number, left_text, right_number, right_text, state))
+        return rows, changed, added, removed
+
+    @staticmethod
+    def _render_html(rows: list[tuple[int | None, str, int | None, str, str]]) -> str:
+        rendered: list[str] = []
+        for left_number, left_text, right_number, right_text, state in rows:
+            left_style = right_style = ""
+            if state == "replace":
+                left_style = right_style = "background:#291238;color:#F1D6FF;"
+            elif state == "insert":
+                right_style = "background:#082B2E;color:#94F4EB;"
+            elif state == "delete":
+                left_style = "background:#321028;color:#FF9DD8;"
+            rendered.append(
+                f'<tr class="{state}">'
+                f'<td class="num">{left_number or ""}</td>'
+                f'<td class="code" style="{left_style}">'
+                f"{html.escape(left_text) or '&nbsp;'}</td>"
+                f'<td class="num">{right_number or ""}</td>'
+                f'<td class="code" style="{right_style}">'
+                f"{html.escape(right_text) or '&nbsp;'}</td>"
+                "</tr>"
+            )
+        return (
+            """<!doctype html><html><head><style>
+            body { background:#0B0710; color:#E8DFF0; margin:0; }
+            table { width:100%; border-collapse:collapse; font-family:Consolas,monospace; }
+            th { color:#D7A8F5; background:#120A1C; border:1px solid #4A2860;
+                 padding:10px; text-align:left; font-size:13px; }
+            td { border-bottom:1px solid #281431; padding:6px 8px; vertical-align:top; }
+            td.num { width:34px; color:#73627E; text-align:right; background:#0D0812; }
+            td.code { white-space:pre-wrap; color:#DCCFE5; }
+        </style></head><body><table width="100%" cellspacing="0" cellpadding="0">
+        <tr><th width="50%" colspan="2">CLIP A // ORIGINAL</th>
+        <th width="50%" colspan="2">CLIP B // COMPARE</th></tr>
+        """
+            + "".join(rendered)
+            + "</table></body></html>"
+        )
 
 
 class ConfigDialog(AnimatedDialog):
     settings_changed = Signal()
     sections_changed = Signal()
+    quit_requested = Signal()
 
     def __init__(
         self,
@@ -169,9 +268,16 @@ class ConfigDialog(AnimatedDialog):
         tabs.addTab(self._sections_tab(), "Sections")
         tabs.addTab(self._vault_tab(), "Vault")
         root.addWidget(tabs)
-        close = QPushButton("Close")
+        footer = QHBoxLayout()
+        quit_button = QPushButton("Quit Clippy")
+        quit_button.setObjectName("DangerButton")
+        quit_button.clicked.connect(self.quit_requested.emit)
+        close = QPushButton("Close panel")
         close.clicked.connect(self.reject)
-        root.addWidget(close)
+        footer.addWidget(quit_button)
+        footer.addStretch()
+        footer.addWidget(close)
+        root.addLayout(footer)
 
     def _general_tab(self) -> QWidget:
         page = QWidget()
@@ -179,6 +285,15 @@ class ConfigDialog(AnimatedDialog):
         self.hotkey = QLineEdit(self.settings.hotkey)
         self.pin_open = QCheckBox("Keep popup open when it loses focus")
         self.pin_open.setChecked(self.settings.pin_open)
+        self.semantic_search = QPushButton()
+        self.semantic_search.setObjectName("ToggleButton")
+        self.semantic_search.setCheckable(True)
+        self.semantic_search.setChecked(self.settings.semantic_search_enabled)
+        self.semantic_search.setToolTip(
+            "Enabled: rank by meaning only. Disabled: substring and typo-tolerant search."
+        )
+        self.semantic_search.toggled.connect(self._update_semantic_button)
+        self._update_semantic_button(self.semantic_search.isChecked())
         self.sounds = QCheckBox("Enable sound cues")
         self.sounds.setChecked(self.settings.sounds_enabled)
         self.volume = QSlider(Qt.Orientation.Horizontal)
@@ -190,11 +305,15 @@ class ConfigDialog(AnimatedDialog):
         cleanup.clicked.connect(self._cleanup)
         form.addRow("Global hotkey", self.hotkey)
         form.addRow("Popup", self.pin_open)
+        form.addRow("Search mode", self.semantic_search)
         form.addRow("Audio", self.sounds)
         form.addRow("Volume", self.volume)
         form.addRow(save)
         form.addRow(cleanup)
         return page
+
+    def _update_semantic_button(self, enabled: bool) -> None:
+        self.semantic_search.setText("SEMANTIC SEARCH: ON" if enabled else "SEMANTIC SEARCH: OFF")
 
     def _sections_tab(self) -> QWidget:
         page = QWidget()
@@ -249,6 +368,7 @@ class ConfigDialog(AnimatedDialog):
     def _save_general(self) -> None:
         self.settings.hotkey = self.hotkey.text().strip() or "<ctrl>+<alt>+v"
         self.settings.pin_open = self.pin_open.isChecked()
+        self.settings.semantic_search_enabled = self.semantic_search.isChecked()
         self.settings.sounds_enabled = self.sounds.isChecked()
         self.settings.sound_volume = self.volume.value() / 100
         self.settings_store.save(self.settings)
